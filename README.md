@@ -14,13 +14,9 @@ From each starting place:
 ## How to run it?
 
 1. Create a GeoDesk feature library as described [here](https://docs.geodesk.com/tutorial). I'd suggest to start with something smaller than the world or a whole continent. Unless it's Antarctica.
-2. See the test class about the parameters needed.
- 
-But since you asked, the order of parameters is `<path> <query>`. E.g.:
-
-`"/home/mememe/Czechia.gol" "n[place=city,town,village,hamlet][name][population>=100000]`
-
-will show charts of next higher mountains for all cities in Czechia that have over 100 000 citizens and have a name. Which is not many.
+2. Run the application and select the .gol file created.
+3. Optionally adapt the query.
+4. After clicking the "Spusť" button, the graphs will be computed and displayed.
 
 How to do queries is described in the [GeoDesk pages](https://docs.geodesk.com/tutorial).
 
@@ -33,6 +29,6 @@ If you don't know Java, I would recommend to open this project in a smart Java e
 
 ## Notes
 
-- I made this mostly for my own trip planning, so it's a bit Czechia-centric. Mainly the names of OSM objects in Czech are preferred. This is not a bug, but it's not difficult to change it in the source code.
-- I don't provide a runnable application, sorry.
-- There is very little to none exception handling. It's a small app, if something is wrong, it just fails.
+- I made this mostly for my own trip planning, so it's in Czech and also other things are a bit Czechia-centric. The names of OSM objects in Czech are preferred. This is not a bug, but it's not difficult to change it in the source code. The code is in English including comments.
+- I currently don't provide a runnable application, sorry.
+- There is very little exception handling. It's a little app, if something is wrong, it just fails.
