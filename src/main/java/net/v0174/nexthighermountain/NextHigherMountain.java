@@ -3,14 +3,23 @@ package net.v0174.nexthighermountain;
 import com.geodesk.feature.Feature;
 import com.geodesk.feature.FeatureLibrary;
 import com.geodesk.feature.Features;
+import com.gluonhq.maps.MapLayer;
+import com.gluonhq.maps.MapPoint;
+import com.gluonhq.maps.MapView;
 import javafx.application.Application;
+import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
+import javafx.scene.control.*;
 import javafx.scene.layout.GridPane;
+import javafx.scene.shape.Circle;
+import javafx.scene.shape.Rectangle;
+import javafx.scene.shape.Shape;
+import javafx.scene.text.Text;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import org.apache.logging.log4j.Level;
@@ -34,6 +43,9 @@ import java.text.NumberFormat;
 import java.util.List;
 import java.util.*;
 import java.util.stream.StreamSupport;
+
+import static javafx.scene.paint.Color.BLACK;
+import static javafx.scene.paint.Color.RED;
 
 public class NextHigherMountain extends Application {
     private static final org.apache.logging.log4j.Logger LOGGER = LogManager.getLogger(NextHigherMountain.class);
@@ -119,30 +131,96 @@ public class NextHigherMountain extends Application {
             fileChanged = false;
         }
         LOGGER.debug("Looking for start points.");
-        Features<? extends Feature> cities = findStartLocations(golLibrary, startLocationQuery);
+        Features<? extends Feature> starts = findStartLocations(golLibrary, startLocationQuery);
         LOGGER.debug("Looking for peaks.");
-        Map<String, List<Mountain>> mountainMap = findPeaks(cities, golLibrary);
+        Map<City, List<Mountain>> mountainMap = findPeaks(starts, golLibrary);
         LOGGER.debug("{} peaks found.", mountainMap.size());
-        for (Map.Entry<String, List<Mountain>> entry : mountainMap.entrySet()) {
+        for (Map.Entry<City, List<Mountain>> entry : mountainMap.entrySet()) {
+            // Chart
             Stage chartStage = new Stage();
-            String place = entry.getKey();
+            City place = entry.getKey();
             List<Mountain> mountainList = entry.getValue();
             LOGGER.debug("Creating the dataset for place {}.", place);
             XYDataset dataset = createDataset(mountainList);
             LOGGER.debug("Creating the labels for place {}.", place);
             LegendItemCollection labels = createLabels(mountainList);
             LOGGER.debug("Creating the chart.");
-            JFreeChart chart = createChart(dataset, labels, place);
+            JFreeChart chart = createChart(dataset, labels, place.name());
             LOGGER.debug("Creating the window contents.");
-            Scene chartScene = new Scene(new ChartViewer(chart));
+            ChartViewer chartViewer = new ChartViewer(chart);
+
+            // Map
+            MapView mapView = new MapView();
+            mapView.setCenter(new MapPoint(place.latitude(), place.longitude()));
+            // Quick and dirty estimation
+            long zoom = Math.round(19-Math.log(mountainList.get((mountainList.size() - 1) / 2).distance()));
+            if (zoom < 0) zoom = 0;
+            else if (zoom > 19) zoom = 19;
+            LOGGER.debug("Setting zoom to {}.", zoom);
+            mapView.setZoom(zoom);
+            mapView.addLayer(createPoiLayer(place, mountainList));
+
+            // Tabs
+            Tab chartTab = new Tab("Graf", chartViewer);
+            Tab mapTab = new Tab("Mapa", mapView);
+            TabPane tabPane = new TabPane();
+            tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+            ObservableList<Tab> tabList = tabPane.getTabs();
+            tabList.add(chartTab);
+            tabList.add(mapTab);
+
+            // Stage (window)
             chartStage.setTitle("Nejbližší vyšší hory z " + place);
-            chartStage.setWidth(850);
-            chartStage.setHeight(500);
-            chartStage.setScene(chartScene);
+            chartStage.setWidth(1024);
+            chartStage.setHeight(768);
+            chartStage.setScene(new Scene(tabPane));
             chartStage.show();
+            LOGGER.info("Next higher mountains from {}:", place);
+            for (int i = 0; i < mountainList.size(); i++) {
+                Mountain mountain = mountainList.get(i);
+                LOGGER.info(
+                        "{}. {} ({} m, {} km), {} {}",
+                        i + 1,
+                        mountain.name(),
+                        mountain.elevation(),
+                        Math.round(mountain.distance() / 1000),
+                        mountain.latitude(),
+                        mountain.longitude()
+                );
+            }
         }
         LOGGER.debug("Done.");
         statusLabel.setText("Hotovo.");
+    }
+
+    /**
+     * @param start        The starting place.
+     * @param mountainList The mountains to be displayed in the new layer.
+     * @return a layer with the POIs representing the provided mountains.
+     */
+    private MapLayer createPoiLayer(City start, List<Mountain> mountainList) {
+        PoiLayer layer = new PoiLayer();
+
+        // Start position
+        MapPoint startMapPoint = new MapPoint(start.latitude(), start.longitude());
+        Rectangle rectangle = new Rectangle(6, 6);
+        String nameString = start.name();
+        Text startText = new Text(-nameString.length() * 3, -7, nameString);
+        Shape startPoint = Shape.union(rectangle, startText);
+        startPoint.setFill(BLACK);
+        layer.addPoint(startMapPoint, startPoint);
+
+        for (int i = 0; i < mountainList.size(); i++) {
+            Mountain mountain = mountainList.get(i);
+            MapPoint mapPoint = new MapPoint(mountain.latitude(), mountain.longitude());
+            Circle circle = new Circle(3);
+            String textString = i + ". " + mountain.name() + " (" + mountain.elevation() + " m, " + Math.round(mountain.distance() / 1000) + " km)";
+            Text text = new Text(-textString.length() * 3, -7, textString);
+            Shape point = Shape.union(circle, text);
+            point.setFill(RED);
+            layer.addPoint(mapPoint, point);
+        }
+        return layer;
     }
 
     /**
@@ -203,18 +281,18 @@ public class NextHigherMountain extends Application {
     /**
      * Finds the peaks for the given place.
      *
-     * @return a list of mountains found.
+     * @return a list of mountains found per city.
      */
-    private Map<String, List<Mountain>> findPeaks(Features<? extends Feature> cities, FeatureLibrary library) {
+    private Map<City, List<Mountain>> findPeaks(Features<? extends Feature> cities, FeatureLibrary library) {
         GeodeticCalculator gc = new GeodeticCalculator();
 
         // Find the peaks
         LOGGER.debug("Looking for peaks according to the filter.");
-        Features<? extends Feature> mountains = library.select("n[natural=peak,volcano,hill][name][ele]");
+        Features<? extends Feature> mountains = library.select("n[natural=peak,volcano,hill][ele]");
         LOGGER.debug("{} mountains found.", mountains.count());
         if (cities.isEmpty()) System.exit(1);
 
-        Map<String, List<Mountain>> map = new HashMap<>();
+        Map<City, List<Mountain>> map = new HashMap<>();
         for (Feature city : cities) {
             String cityName = getBestName(city);
 
@@ -237,7 +315,7 @@ public class NextHigherMountain extends Application {
                     .map(f -> {
                         gc.setDestinationGeographicPoint(f.lon(), f.lat());
                         String name = getBestName(f);
-                        return new Mountain(name, f.intValue("ele"), gc.getOrthodromicDistance());
+                        return new Mountain(name, f.intValue("ele"), gc.getOrthodromicDistance(), f.lat(), f.lon());
                     })
                     .filter(m -> (m.distance() - highestPeakDistance < 0.1))
                     .filter(m -> m.elevation() < 9000)  // Remove invalid data over this limit (again)
@@ -250,7 +328,7 @@ public class NextHigherMountain extends Application {
                             },
                             ArrayList::addAll   // Shouldn't happen in a sequential stream.
                     );
-            map.put(cityName, mountainList);
+            map.put(new City(cityName, city.lat(), city.lon()), mountainList);
             LOGGER.debug("{} mountains stored for displaying.", mountainList.size());
         }
         return map;
@@ -266,6 +344,7 @@ public class NextHigherMountain extends Application {
         String name = feat.stringValue("name:cs");
         if (name.isBlank()) name = feat.stringValue("name:en");
         if (name.isBlank()) name = feat.stringValue("name");
+        if (name.isBlank()) name = "Bezejmenný vrchol";
         return name;
     }
 
